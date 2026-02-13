@@ -34,7 +34,7 @@ class MidiMacroGUI:
         self.stop_signal = False
         self.auto_shift = 0
 
-        tk.Label(root, text="WWM MIDI Player (F5/Plus/Minus)", font=("Arial", 11, "bold")).pack(pady=10)
+        tk.Label(root, text="WWM MIDI Player 32-Keys", font=("Arial", 11, "bold")).pack(pady=10)
 
         self.frame = tk.Frame(root)
         self.frame.pack(pady=5, padx=10, fill="both", expand=True)
