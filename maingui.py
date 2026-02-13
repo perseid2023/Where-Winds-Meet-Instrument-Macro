@@ -55,7 +55,7 @@ class MidiMacroGUI:
         # Spinbox for manual octave control
         self.octave_shift = tk.Spinbox(speed_frame, from_=-3, to=3, width=5)
         self.octave_shift.delete(0, "end")
-        self.octave_shift.insert(0, "-1")
+        self.octave_shift.insert(0, "0")
         self.octave_shift.pack(side="left", padx=5)
 
         btn_frame = tk.Frame(root)

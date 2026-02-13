@@ -16,7 +16,7 @@ ROW_KEYS = [
 C3_PITCH = 48
 play_state = 'idle'
 stop_signal = False
-manual_octave_offset = -12 # Default to -1 octave
+manual_octave_offset = 0 # Default to 0 octave
 
 def get_key_and_modifier(pitch):
     relative_pitch = pitch % 12
@@ -104,7 +104,7 @@ if __name__ == '__main__':
         auto_shift = find_best_shift(midi)
 
         print(f"File: {midi_path}")
-        print(f"Default Octave: -1")
+        print(f"Default Octave: 0")
         print("---------------------------------")
         print("F5            : Start / Stop")
         print("+ (or Numpad+): Octave Up")
