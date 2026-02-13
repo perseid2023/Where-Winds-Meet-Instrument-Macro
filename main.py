@@ -1,127 +1,126 @@
 import os
 import sys
-import argparse
 import time
-import types
+import threading
+from mido import MidiFile
+import keyboard
 
-# --- PORTABILITY & DEPENDENCY FIX ---
-script_dir = os.path.dirname(os.path.abspath(__file__))
-if script_dir not in sys.path:
-    sys.path.insert(0, script_dir)
+# --- CONFIGURATION ---
+# Base keys per row from the screenshot
+ROW_KEYS = [
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm'], # Low Row
+    ['a', 's', 'd', 'f', 'g', 'h', 'j'], # Medium Row
+    ['q', 'w', 'e', 'r', 't', 'y', 'u']  # High Row
+]
 
-if 'packaging' not in sys.modules:
-    try:
-        pkg = types.ModuleType('packaging')
-        pkg.version = types.ModuleType('packaging.version')
-        class FakeVersion:
-            def __init__(self, v): self.v = v
-            def __str__(self): return self.v
-        pkg.version.Version = FakeVersion
-        sys.modules['packaging'] = pkg
-        sys.modules['packaging.version'] = pkg.version
-    except Exception: pass
-
-try:
-    from mido import MidiFile
-    import keyboard
-except ImportError as e:
-    print(f"\n[!] Import Error: {e}")
-    sys.exit(1)
-
-# --- WHERE WINDS MEET CONFIGURATION ---
-# Based on the image:
-# Low Pitch (Bottom Row): Z X C V B N M (plus semitones)
-# Medium Pitch (Middle Row): A S D F G H J (plus semitones)
-# High Pitch (Top Row): Q W E R T Y U (plus semitones)
-
-# We map 12 semitones per row to match the chromatic layout
-# Keytable format: "C C# D D# E F F# G G# A A# B"
-low_row    = "zxcvbnm" # Standard mapping often requires custom layout for sharps
-med_row    = "asdfghj"
-high_row   = "qwertyu"
-
-# Chromatic mapping for Where Winds Meet (Adjusted for the 12-note scale per octave)
-# Note: '?' represents semitones if they don't have a direct single-key assignment
-keytable = "z?x?cv?b?n?m" + "a?s?df?g?h?j" + "q?w?er?t?y?u"
-
-octave_interval = 12
-c3_pitch = 48 # Base pitch for Low Row
-c5_pitch = 72 # Base pitch for High Row
-b5_pitch = 83 # End of High Row
+C3_PITCH = 48
 play_state = 'idle'
+stop_signal = False
+manual_octave_offset = -12 # Default to -1 octave
 
-def midi_playable(event):
-    return not event.is_meta and event.type == 'note_on'
+def get_key_and_modifier(pitch):
+    relative_pitch = pitch % 12
+    semitone_map = {
+        0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (2, -1),
+        4: (2, 0), 5: (3, 0), 6: (3, 1), 7: (4, 0),
+        8: (4, 1), 9: (5, 0), 10: (6, -1), 11: (6, 0)
+    }
 
-def find_best_shift(midi_data):
-    note_counter = [0] * octave_interval
-    octave_list = [0] * 11
-    for event in midi_data:
-        if not midi_playable(event): continue
-        for i in range(octave_interval):
-            note_pitch = (event.note + i) % octave_interval
-            if keytable[note_pitch] != '?':
-                note_counter[i] += 1
-                note_octave = (event.note + i) // octave_interval
-                octave_list[note_octave] += 1
-    max_note = max(range(len(note_counter)), key=note_counter.__getitem__)
-    shifting, counter = 0, 0
-    for i in range(len(octave_list) - 3):
-        amount = sum(octave_list[i: i + 3])
-        if amount > counter:
-            counter, shifting = amount, i
-    return int(max_note + (4 - shifting) * octave_interval)
+    # Calculate octave relative to C3 (48)
+    octave = (pitch - C3_PITCH) // 12
+    octave = max(0, min(2, octave)) # Squeeze into the 3 rows
 
-def play(midi, shifting, speed):
-    global play_state
+    key_idx, mod = semitone_map[relative_pitch]
+    return ROW_KEYS[octave][key_idx], mod
+
+def find_best_shift(midi_file):
+    notes = [n.note for n in midi_file if not n.is_meta and n.type == 'note_on']
+    if not notes: return 0
+    avg_note = sum(notes) / len(notes)
+    return round((60 - avg_note) / 12) * 12
+
+def play_midi(midi, auto_shifting, speed):
+    global play_state, stop_signal, manual_octave_offset
+
+    for i in range(3, 0, -1):
+        if stop_signal: return
+        print(f"Switch to Game! Starting in {i}...   ", end='\r')
+        time.sleep(1)
+
+    print("\n[PLAYING] F5: Stop | +/-: Octave Shift")
     play_state = 'playing'
+
     for event in midi:
-        if play_state != 'playing': break
-        time.sleep(event.time / speed)
-        if not midi_playable(event): continue
+        if stop_signal or play_state != 'playing': break
 
-        pitch = event.note + shifting
+        time.sleep(max(0, event.time / speed))
+        if event.is_meta or event.type != 'note_on' or event.velocity == 0:
+            continue
 
-        # Clamp pitch to the 3-octave range available in-game
-        if pitch < c3_pitch:
-            pitch = pitch % octave_interval + c3_pitch
-        elif pitch > b5_pitch:
-            pitch = pitch % octave_interval + c5_pitch
+        # Real-time calculation using the latest manual_octave_offset
+        pitch = event.note + auto_shifting + manual_octave_offset
+        pitch = max(C3_PITCH, min(C3_PITCH + 35, pitch))
 
-        if c3_pitch <= pitch <= b5_pitch:
-            key_idx = pitch - c3_pitch
-            key_press = keytable[key_idx]
+        key, mod = get_key_and_modifier(pitch)
 
-            # Skip keys marked as '?' (semitones without keys)
-            # unless you use Shift/Ctrl modifiers
-            if key_press != '?':
-                keyboard.send(key_press)
+        if mod == 1:
+            keyboard.press('shift')
+            keyboard.press_and_release(key)
+            keyboard.release('shift')
+        elif mod == -1:
+            keyboard.press('ctrl')
+            keyboard.press_and_release(key)
+            keyboard.release('ctrl')
+        else:
+            keyboard.press_and_release(key)
 
-def control(midi, shifting, speed):
-    global play_state
+    play_state = 'idle'
+    print("\n[FINISHED] Ready. Press F5 to play again.")
+
+def change_octave(amount):
+    global manual_octave_offset
+    manual_octave_offset += (amount * 12)
+    current = manual_octave_offset // 12
+    print(f"Current Octave Offset: {current} ({manual_octave_offset} semitones)      ", end='\r')
+
+def toggle_control(midi, shifting, speed):
+    global play_state, stop_signal
     if play_state == 'playing':
-        play_state = 'pause'
-    elif play_state == 'idle' or play_state == 'pause':
-        keyboard.call_later(play, args=(midi, shifting, speed), delay=1)
+        stop_signal = True
+        play_state = 'idle'
+    else:
+        stop_signal = False
+        threading.Thread(target=play_midi, args=(midi, shifting, speed), daemon=True).start()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('midi', nargs="?", type=str)
-    parser.add_argument('--speed', type=float, default=1.0)
-    args = parser.parse_args()
+    midi_path = sys.argv[1] if len(sys.argv) > 1 else 'asd.midi'
 
-    midi_path = args.midi if args.midi else os.path.join(script_dir, 'asd.midi')
+    if not os.path.exists(midi_path):
+        print(f"Error: {midi_path} not found.")
+        sys.exit(1)
 
     try:
         midi = MidiFile(midi_path)
+        auto_shift = find_best_shift(midi)
+
+        print(f"File: {midi_path}")
+        print(f"Default Octave: -1")
+        print("---------------------------------")
+        print("F5            : Start / Stop")
+        print("+ (or Numpad+): Octave Up")
+        print("- (or Numpad-): Octave Down")
+        print("Esc           : Exit Script")
+
+        keyboard.add_hotkey('f5', lambda: toggle_control(midi, auto_shift, 1.0), suppress=True)
+
+        # Multiple hotkeys for compatibility
+        keyboard.add_hotkey('+', lambda: change_octave(1), suppress=True)
+        keyboard.add_hotkey('=', lambda: change_octave(1), suppress=True) # Common for main keyboard '+'
+        keyboard.add_hotkey('plus', lambda: change_octave(1), suppress=True)
+
+        keyboard.add_hotkey('-', lambda: change_octave(-1), suppress=True)
+        keyboard.add_hotkey('minus', lambda: change_octave(-1), suppress=True)
+
+        keyboard.wait('esc')
     except Exception as e:
-        print(f"Could not load MIDI: {e}")
-        sys.exit(1)
-
-    shifting = find_best_shift(midi)
-    print(f"\n--- WHERE WINDS MEET MACRO ---")
-    print(f"File: {os.path.basename(midi_path)}")
-    print("F5: Play/Pause | Esc: Exit")
-
-    keyboard.add_hotkey('F5', lambda: control(midi, shifting, args.speed), suppress=True, trigger_on_release=True)
-    keyboard.wait('Esc', suppress=True)
+        print(f"Error: {e}")
