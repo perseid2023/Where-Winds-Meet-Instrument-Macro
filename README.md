@@ -1,6 +1,6 @@
 # Where-Winds-Meet-Instrument-Macro
 
-Python script that enables you to play all the songs on the Where Winds Meet.
+Python script that enables you to play midi songs on the Where Winds Meet.
 
 # How to use
 
