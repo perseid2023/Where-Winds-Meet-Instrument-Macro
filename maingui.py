@@ -25,72 +25,140 @@ C3_MIDI_PITCH = 48
 class MidiMacroGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Where Winds Meet Instrument Macro")
-        self.root.geometry("500x550")
+        self.root.title("WWM Instrument Macro")
+        self.root.geometry("550x650")
 
         self.playlist_data = []
-        self.current_midi = None
         self.play_state = 'idle'
         self.stop_signal = False
-        self.auto_shift = 0
+        self.current_time_sec = 0
+        self.total_time_sec = 0
 
-        tk.Label(root, text="WWM MIDI Player 32-Keys", font=("Arial", 11, "bold")).pack(pady=10)
+        # Debounce to prevent jumping by 2
+        self.last_hotkey_time = 0
+        self.debounce_sec = 0.15
 
-        self.frame = tk.Frame(root)
-        self.frame.pack(pady=5, padx=10, fill="both", expand=True)
-        self.listbox = tk.Listbox(self.frame, font=("Consolas", 10))
-        self.listbox.pack(side="left", fill="both", expand=True)
+        # --- UI HEADER ---
+        tk.Label(root, text="WWM MIDI Player 32-Keys", font=("Arial", 12, "bold")).pack(pady=10)
 
-        self.progress = ttk.Progressbar(root, orient="horizontal", length=400, mode="determinate")
-        self.progress.pack(pady=5)
+        # --- PLAYLIST SECTION ---
+        list_frame = tk.Frame(root)
+        list_frame.pack(pady=5, padx=10, fill="both", expand=True)
 
-        speed_frame = tk.Frame(root)
-        speed_frame.pack(pady=5)
-        tk.Label(speed_frame, text="Speed:").pack(side="left")
-        self.speed_entry = tk.Entry(speed_frame, width=5)
+        v_scrollbar = tk.Scrollbar(list_frame, orient="vertical")
+        h_scrollbar = tk.Scrollbar(list_frame, orient="horizontal")
+
+        self.listbox = tk.Listbox(
+            list_frame,
+            font=("Consolas", 10),
+            yscrollcommand=v_scrollbar.set,
+            xscrollcommand=h_scrollbar.set,
+            selectmode="browse"
+        )
+
+        v_scrollbar.config(command=self.listbox.yview)
+        h_scrollbar.config(command=self.listbox.xview)
+
+        self.listbox.grid(row=0, column=0, sticky="nsew")
+        v_scrollbar.grid(row=0, column=1, sticky="ns")
+        h_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        list_frame.grid_rowconfigure(0, weight=1)
+        list_frame.grid_columnconfigure(0, weight=1)
+
+        # --- PROGRESS & TIMESTAMP ---
+        progress_frame = tk.Frame(root)
+        progress_frame.pack(fill="x", padx=20, pady=5)
+
+        self.progress = ttk.Progressbar(progress_frame, orient="horizontal", mode="determinate")
+        self.progress.pack(fill="x")
+
+        self.time_label = tk.Label(progress_frame, text="00:00 / 00:00", font=("Consolas", 10))
+        self.time_label.pack(pady=2)
+
+        # --- SETTINGS ---
+        settings_frame = tk.Frame(root)
+        settings_frame.pack(pady=5)
+
+        tk.Label(settings_frame, text="Speed:").pack(side="left")
+        self.speed_entry = tk.Entry(settings_frame, width=5)
         self.speed_entry.insert(0, "1.0")
         self.speed_entry.pack(side="left", padx=5)
 
-        tk.Label(speed_frame, text="Octave Offset:").pack(side="left")
-        # Spinbox for manual octave control
-        self.octave_shift = tk.Spinbox(speed_frame, from_=-3, to=3, width=5)
+        tk.Label(settings_frame, text="Octave Offset:").pack(side="left")
+        self.octave_shift = tk.Spinbox(settings_frame, from_=-3, to=3, width=5)
         self.octave_shift.delete(0, "end")
         self.octave_shift.insert(0, "0")
         self.octave_shift.pack(side="left", padx=5)
 
+        # --- BUTTONS ---
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=10)
-        tk.Button(btn_frame, text="Add MIDI", command=self.add_files, width=12).pack(side="left", padx=5)
-        tk.Button(btn_frame, text="▶ Play (F5)", command=self.start_play, bg="#d4edda", width=12).pack(side="left", padx=5)
-        tk.Button(btn_frame, text="⏹ Stop", command=self.stop_play, bg="#f8d7da", width=12).pack(side="left", padx=5)
+
+        tk.Button(btn_frame, text="Add MIDI", command=self.add_files, width=11).pack(side="left", padx=3)
+        tk.Button(btn_frame, text="Clear List", command=self.clear_playlist, width=11, fg="red").pack(side="left", padx=3)
+        tk.Button(btn_frame, text="▶ Play (F5)", command=self.start_play, bg="#d4edda", width=11).pack(side="left", padx=3)
+        tk.Button(btn_frame, text="⏹ Stop", command=self.stop_play, bg="#f8d7da", width=11).pack(side="left", padx=3)
 
         self.status = tk.StringVar(value="Status: Ready")
         tk.Label(root, textvariable=self.status, font=("Arial", 10, "italic")).pack(pady=5)
 
-        # Register Hotkeys
-        keyboard.add_hotkey('f5', self.toggle_play_macro, suppress=True)
+        # --- SAFE HOTKEY REGISTRATION ---
+        self.setup_hotkeys()
 
-        # Octave Up Hotkeys
-        keyboard.add_hotkey('+', lambda: self.adjust_octave_gui(1), suppress=True)
-        keyboard.add_hotkey('=', lambda: self.adjust_octave_gui(1), suppress=True)
-        keyboard.add_hotkey('plus', lambda: self.adjust_octave_gui(1), suppress=True)
+    def setup_hotkeys(self):
+        try: keyboard.add_hotkey('f5', self.toggle_play_macro, suppress=True)
+        except: pass
 
-        # Octave Down Hotkeys
-        keyboard.add_hotkey('-', lambda: self.adjust_octave_gui(-1), suppress=True)
-        keyboard.add_hotkey('minus', lambda: self.adjust_octave_gui(-1), suppress=True)
+        # PLUS / EQUAL mappings
+        for k in ['=', '+', 'equal', 'plus']:
+            try:
+                keyboard.add_hotkey(k, self.hotkey_inc, suppress=True)
+            except:
+                continue
 
-    def adjust_octave_gui(self, amount):
-        """Adjusts the Spinbox value safely from a hotkey thread."""
+        # MINUS / DASH mappings
+        for k in ['-', '_', 'minus', 'dash']:
+            try:
+                keyboard.add_hotkey(k, self.hotkey_dec, suppress=True)
+            except:
+                continue
+
+    def hotkey_inc(self):
+        now = time.time()
+        if now - self.last_hotkey_time > self.debounce_sec:
+            self.last_hotkey_time = now
+            self.root.after(0, self.change_octave, 1)
+
+    def hotkey_dec(self):
+        now = time.time()
+        if now - self.last_hotkey_time > self.debounce_sec:
+            self.last_hotkey_time = now
+            self.root.after(0, self.change_octave, -1)
+
+    def change_octave(self, delta):
         try:
             current = int(self.octave_shift.get())
-            new_val = max(-3, min(3, current + amount))
-            self.root.after(0, lambda: self.set_spinbox_val(new_val))
+            new_val = max(-3, min(3, current + delta))
+            self.octave_shift.delete(0, "end")
+            self.octave_shift.insert(0, str(new_val))
+            self.status.set(f"Status: Octave Shifted to {new_val}")
         except:
-            pass
+            self.octave_shift.delete(0, "end")
+            self.octave_shift.insert(0, "0")
 
-    def set_spinbox_val(self, val):
-        self.octave_shift.delete(0, "end")
-        self.octave_shift.insert(0, str(val))
+    def format_time(self, seconds):
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{mins:02d}:{secs:02d}"
+
+    def clear_playlist(self):
+        self.stop_play()
+        self.playlist_data = []
+        self.listbox.delete(0, tk.END)
+        self.progress['value'] = 0
+        self.time_label.config(text="00:00 / 00:00")
+        self.status.set("Status: Playlist Cleared")
 
     def add_files(self):
         files = filedialog.askopenfilenames(filetypes=[("MIDI files", "*.mid *.midi")])
@@ -98,19 +166,26 @@ class MidiMacroGUI:
             self.playlist_data.append(f)
             self.listbox.insert("end", os.path.basename(f))
 
-    def find_best_shift(self, midi_data):
-        notes = [n.note for n in midi_data if not n.is_meta and n.type == 'note_on']
-        if not notes: return 0
-        avg_note = sum(notes) / len(notes)
-        return round((60 - avg_note) / 12) * 12
-
     def play_logic(self):
+        selection = self.listbox.curselection()
+        if not selection: return
+
+        idx = selection[0]
+        try:
+            mid = MidiFile(self.playlist_data[idx])
+            self.total_time_sec = mid.length
+            self.current_time_sec = 0
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load MIDI: {e}")
+            self.play_state = 'idle'
+            return
+
         for i in range(3, 0, -1):
             if self.stop_signal: return
             self.status.set(f"Switch to Game! Starting in {i}...")
             time.sleep(1)
 
-        self.status.set("Playing...")
+        self.status.set(f"Playing: {os.path.basename(self.playlist_data[idx])}")
 
         semitone_map = {
             0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (2, -1),
@@ -118,28 +193,33 @@ class MidiMacroGUI:
             8: (4, 1), 9: (5, 0), 10: (6, -1), 11: (6, 0)
         }
 
-        for event in self.current_midi:
+        for event in mid:
             if self.stop_signal: break
 
-            # Re-read UI values for every note to allow real-time changes
             try:
                 speed = float(self.speed_entry.get())
                 manual_trans = int(self.octave_shift.get()) * 12
             except:
-                speed, manual_trans = 1.0, -12
+                speed, manual_trans = 1.0, 0
 
-            time.sleep(max(0, event.time / speed))
+            actual_sleep = max(0, event.time / speed)
+            time.sleep(actual_sleep)
+
+            self.current_time_sec += event.time
+            if self.total_time_sec > 0:
+                percent = (self.current_time_sec / self.total_time_sec) * 100
+                self.progress['value'] = percent
+
+            self.time_label.config(text=f"{self.format_time(self.current_time_sec)} / {self.format_time(self.total_time_sec)}")
 
             if event.is_meta or event.type != 'note_on' or event.velocity == 0:
                 continue
 
-            # Calculate pitch with real-time manual_trans
-            pitch = event.note + self.auto_shift + manual_trans
+            pitch = event.note + manual_trans
             pitch = max(C3_MIDI_PITCH, min(C3_MIDI_PITCH + 35, pitch))
 
             relative_pitch = pitch % 12
-            octave = (pitch - C3_MIDI_PITCH) // 12
-            octave = max(0, min(2, octave))
+            octave = max(0, min(2, (pitch - C3_MIDI_PITCH) // 12))
 
             key_idx, modifier = semitone_map[relative_pitch]
             target_key = row_keys[octave][key_idx]
@@ -155,18 +235,17 @@ class MidiMacroGUI:
             else:
                 keyboard.press_and_release(target_key)
 
-        if not self.stop_signal:
-            self.status.set("Status: Finished")
+        self.status.set("Status: Finished" if not self.stop_signal else "Status: Stopped")
         self.play_state = 'idle'
 
     def start_play(self):
         if self.play_state == 'playing': return
-        selection = self.listbox.curselection()
-        if not selection: return
+        if not self.listbox.curselection():
+            messagebox.showwarning("Warning", "Please select a song from the playlist first!")
+            return
+
         self.stop_signal = False
         self.play_state = 'playing'
-        self.current_midi = MidiFile(self.playlist_data[selection[0]])
-        self.auto_shift = self.find_best_shift(self.current_midi)
         threading.Thread(target=self.play_logic, daemon=True).start()
 
     def stop_play(self):
@@ -175,8 +254,10 @@ class MidiMacroGUI:
         self.status.set("Status: Stopped")
 
     def toggle_play_macro(self):
-        if self.play_state == 'playing': self.stop_play()
-        else: self.root.after(0, self.start_play)
+        if self.play_state == 'playing':
+            self.stop_play()
+        else:
+            self.root.after(0, self.start_play)
 
 if __name__ == '__main__':
     root = tk.Tk()

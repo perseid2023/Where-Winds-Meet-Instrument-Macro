@@ -6,7 +6,6 @@ from mido import MidiFile
 import keyboard
 
 # --- CONFIGURATION ---
-# Base keys per row from the screenshot
 ROW_KEYS = [
     ['z', 'x', 'c', 'v', 'b', 'n', 'm'], # Low Row
     ['a', 's', 'd', 'f', 'g', 'h', 'j'], # Medium Row
@@ -16,7 +15,11 @@ ROW_KEYS = [
 C3_PITCH = 48
 play_state = 'idle'
 stop_signal = False
-manual_octave_offset = 0 # Default to 0 octave
+manual_octave_offset = 0
+
+# Debounce settings
+last_hotkey_time = 0
+debounce_sec = 0.2  # Ignore duplicate hits within 0.2 seconds
 
 def get_key_and_modifier(pitch):
     relative_pitch = pitch % 12
@@ -26,9 +29,8 @@ def get_key_and_modifier(pitch):
         8: (4, 1), 9: (5, 0), 10: (6, -1), 11: (6, 0)
     }
 
-    # Calculate octave relative to C3 (48)
     octave = (pitch - C3_PITCH) // 12
-    octave = max(0, min(2, octave)) # Squeeze into the 3 rows
+    octave = max(0, min(2, octave))
 
     key_idx, mod = semitone_map[relative_pitch]
     return ROW_KEYS[octave][key_idx], mod
@@ -57,7 +59,6 @@ def play_midi(midi, auto_shifting, speed):
         if event.is_meta or event.type != 'note_on' or event.velocity == 0:
             continue
 
-        # Real-time calculation using the latest manual_octave_offset
         pitch = event.note + auto_shifting + manual_octave_offset
         pitch = max(C3_PITCH, min(C3_PITCH + 35, pitch))
 
@@ -78,8 +79,18 @@ def play_midi(midi, auto_shifting, speed):
     print("\n[FINISHED] Ready. Press F5 to play again.")
 
 def change_octave(amount):
-    global manual_octave_offset
+    global manual_octave_offset, last_hotkey_time
+
+    # Debounce check
+    current_time = time.time()
+    if current_time - last_hotkey_time < debounce_sec:
+        return
+    last_hotkey_time = current_time
+
     manual_octave_offset += (amount * 12)
+    # Clamp between -3 and +3 octaves to prevent going out of range
+    manual_octave_offset = max(-36, min(36, manual_octave_offset))
+
     current = manual_octave_offset // 12
     print(f"Current Octave Offset: {current} ({manual_octave_offset} semitones)      ", end='\r')
 
@@ -104,22 +115,24 @@ if __name__ == '__main__':
         auto_shift = find_best_shift(midi)
 
         print(f"File: {midi_path}")
-        print(f"Default Octave: 0")
+        print(f"Auto-Shifting: {auto_shift // 12} octaves")
         print("---------------------------------")
         print("F5            : Start / Stop")
-        print("+ (or Numpad+): Octave Up")
-        print("- (or Numpad-): Octave Down")
+        print("+ / =         : Octave Up")
+        print("-             : Octave Down")
         print("Esc           : Exit Script")
 
         keyboard.add_hotkey('f5', lambda: toggle_control(midi, auto_shift, 1.0), suppress=True)
 
-        # Multiple hotkeys for compatibility
-        keyboard.add_hotkey('+', lambda: change_octave(1), suppress=True)
-        keyboard.add_hotkey('=', lambda: change_octave(1), suppress=True) # Common for main keyboard '+'
-        keyboard.add_hotkey('plus', lambda: change_octave(1), suppress=True)
+        # Register multiple keys but the 'change_octave' function
+        # now ignores the extra triggers.
+        for k in ['+', '=', 'plus']:
+            try: keyboard.add_hotkey(k, lambda: change_octave(1), suppress=True)
+            except: pass
 
-        keyboard.add_hotkey('-', lambda: change_octave(-1), suppress=True)
-        keyboard.add_hotkey('minus', lambda: change_octave(-1), suppress=True)
+        for k in ['-', '_', 'minus']:
+            try: keyboard.add_hotkey(k, lambda: change_octave(-1), suppress=True)
+            except: pass
 
         keyboard.wait('esc')
     except Exception as e:
