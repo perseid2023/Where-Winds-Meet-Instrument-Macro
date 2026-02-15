@@ -14,25 +14,37 @@ Python script that enables you to play midi songs on the Where Winds Meet.
 
 # Key Features Explained
 
-**Clamp Notes**  
+## **Clamp Notes**  
+
 What it does: Forces every note to stay within the 32-key range of the instrument.
 
 When to use: Use this if your MIDI file has very high or very low notes that the game doesn't support. Instead of skipping those notes, the software will play the nearest available note at the edge of the keyboard.
 
-**Octave Offset**  
+## **Octave Offset**  
+
 What it does: Shifts the entire song up or down in pitch.
 
 Range: -3 to +3 octaves.
 
 Why use it: If a song sounds too "squeaky" or too "deep," use the + or - hotkeys while playing to find the perfect pitch for your specific instrument.
 
-**Playlist Toggles**  
+## **Playlist Toggles**  
+
 Loop: When the current song finishes, it starts over immediately.
 
 Shuffle: Picks a random song from your list after the current one ends.
 
 Auto-Next: When enabled, the player automatically moves to the next song in the list. If disabled, it will stop after one song.
 
+# Hotkey List
+
+These hotkeys work even while you are inside the game window.  
+Hotkey :  
+**F5**  : Play / Stop	Starts the 3s countdown or immediately stops playback.  
+**+**  : Increase Octave	Shifts pitch up by 1 octave (Real-time).  
+**-**  : Decrease Octave	Shifts pitch down by 1 octave (Real-time).  
+
+  
 # About
 
   ## What are MIDI?
