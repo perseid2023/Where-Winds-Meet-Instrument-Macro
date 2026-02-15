@@ -14,11 +14,11 @@ Python script that enables you to play midi songs on the Where Winds Meet.
 
 # Key Features Explained
 
-## **Clamp Notes**  
+## **Fold High**
 
-What it does: Forces every note to stay within the 32-key range of the instrument.
+What it does: Automatically brings high notes that are "out of range" down into the playable 3-octave area.
 
-When to use: Use this if your MIDI file has very high or very low notes that the game doesn't support. Instead of skipping those notes, the software will play the nearest available note at the edge of the keyboard.
+When to use: Use this if your MIDI file has a high-pitched melody that your keyboard can't reach. Instead of skipping the note and hearing silence, the software "folds" the note down by one or more octaves so it can still be played.
 
 ## **Octave Offset**  
 
