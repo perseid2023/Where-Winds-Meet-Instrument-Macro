@@ -6,25 +6,45 @@ Python script that enables you to play midi songs on the Where Winds Meet.
 
 
 1. Download the [zip folder](https://github.com/perseid2023/Where-Winds-Meet-Instrument-Macro/archive/refs/heads/main.zip) that contains 'main.py' and extract it.
-2. Download a MIDI music file that sounds good with the piano or guitar.
-3. Open the extracted folder that contains 'main.py,' and right-click in the empty space to open Command Prompt or Windows PowerShell in that folder.
-4. Return to the Command/PowerShell window, enter the following commands, and switch back to the game after pressing Enter:
-                   (You can change the speed based on midi or just run without --speed)
-    ```
-   python main.py "PATH" --speed 0.5  
-     ```
-5. Replace 'PATH' with the MIDI path and ensure that you enclose the MIDI path with double quotation marks.
+2. Run the Script: ```python maingui.py```.
+3. Add Music: Click Add MIDI to load your .mid files into the playlist.
+4. Select a Song: Click on a song name in the listbox.
+5. Play: Press the Play (F5) button or hotkey.
+6. Switch to Game: You have 3 seconds to alt-tab into your game and focus on the instrument window before the first note plays.
 
-Or just use 
-```
-python maingui.py
-``` 
+# Key Features Explained
 
-# Note
+## **Clamp Notes**  
+
+What it does: Forces every note to stay within the 32-key range of the instrument.
+
+When to use: Use this if your MIDI file has very high or very low notes that the game doesn't support. Instead of skipping those notes, the software will play the nearest available note at the edge of the keyboard.
+
+## **Octave Offset**  
+
+What it does: Shifts the entire song up or down in pitch.
+
+Range: -3 to +3 octaves.
+
+Why use it: If a song sounds too "squeaky" or too "deep," use the + or - hotkeys while playing to find the perfect pitch for your specific instrument.
+
+## **Playlist Toggles**  
+
+Loop: When the current song finishes, it starts over immediately.
+
+Shuffle: Picks a random song from your list after the current one ends.
+
+Auto-Next: When enabled, the player automatically moves to the next song in the list. If disabled, it will stop after one song.
+
+# Hotkey List
+
+These hotkeys work even while you are inside the game window.  
+Hotkey :  
+**F5**  : Play / Stop	Starts the 3s countdown or immediately stops playback.  
+**+**  : Increase Octave	Shifts pitch up by 1 octave (Real-time).  
+**-**  : Decrease Octave	Shifts pitch down by 1 octave (Real-time).  
+
   
-  Toplay/stop press F5 and to break the script press Esc.
-
-
 # About
 
   ## What are MIDI?
