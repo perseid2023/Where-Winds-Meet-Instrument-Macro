@@ -27,7 +27,7 @@ MAX_PITCH = C3_MIDI_PITCH + 35
 class MidiMacroGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("WWM Macro - Fold High (Fixed Hotkeys)")
+        self.root.title("WWM Instrument Macro")
         self.root.geometry("600x700")
 
         self.playlist_data = []
@@ -47,7 +47,7 @@ class MidiMacroGUI:
         self.debounce_sec = 0.15
 
         # --- UI HEADER ---
-        tk.Label(root, text="WWM MIDI Player (Octave Folding)", font=("Arial", 12, "bold")).pack(pady=10)
+        tk.Label(root, text="WWM Instrument Macro 32 Keys", font=("Arial", 12, "bold")).pack(pady=10)
 
         # --- PLAYLIST SECTION ---
         list_frame = tk.Frame(root)
