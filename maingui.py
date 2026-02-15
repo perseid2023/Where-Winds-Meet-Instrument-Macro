@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import threading
+import random
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -15,9 +16,9 @@ except ImportError:
 
 # --- CONFIGURATION ---
 row_keys = [
-    ['z', 'x', 'c', 'v', 'b', 'n', 'm'], # Low Pitch Row
-    ['a', 's', 'd', 'f', 'g', 'h', 'j'], # Medium Pitch Row
-    ['q', 'w', 'e', 'r', 't', 'y', 'u']  # High Pitch Row
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm'], # Low Pitch Row (Octave 0)
+    ['a', 's', 'd', 'f', 'g', 'h', 'j'], # Medium Pitch Row (Octave 1)
+    ['q', 'w', 'e', 'r', 't', 'y', 'u']  # High Pitch Row (Octave 2)
 ]
 
 C3_MIDI_PITCH = 48
@@ -26,15 +27,21 @@ class MidiMacroGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("WWM Instrument Macro")
-        self.root.geometry("550x650")
+        self.root.geometry("600x680")
 
         self.playlist_data = []
         self.play_state = 'idle'
         self.stop_signal = False
         self.current_time_sec = 0
         self.total_time_sec = 0
+        self.current_index = -1
 
-        # Debounce to prevent jumping by 2
+        # Toggle Variables
+        self.clamp_enabled = tk.BooleanVar(value=True)
+        self.loop_enabled = tk.BooleanVar(value=False)
+        self.shuffle_enabled = tk.BooleanVar(value=False)
+        self.auto_next_enabled = tk.BooleanVar(value=True) # New Toggle
+
         self.last_hotkey_time = 0
         self.debounce_sec = 0.15
 
@@ -85,11 +92,19 @@ class MidiMacroGUI:
         self.speed_entry.insert(0, "1.0")
         self.speed_entry.pack(side="left", padx=5)
 
-        tk.Label(settings_frame, text="Octave Offset:").pack(side="left")
-        self.octave_shift = tk.Spinbox(settings_frame, from_=-3, to=3, width=5)
+        tk.Label(settings_frame, text="Octave:").pack(side="left")
+        self.octave_shift = tk.Spinbox(settings_frame, from_=-3, to=3, width=3)
         self.octave_shift.delete(0, "end")
         self.octave_shift.insert(0, "0")
         self.octave_shift.pack(side="left", padx=5)
+
+        # Toggles Row
+        toggles_frame = tk.Frame(root)
+        toggles_frame.pack(pady=5)
+        tk.Checkbutton(toggles_frame, text="Clamp", variable=self.clamp_enabled).pack(side="left", padx=5)
+        tk.Checkbutton(toggles_frame, text="Loop", variable=self.loop_enabled).pack(side="left", padx=5)
+        tk.Checkbutton(toggles_frame, text="Shuffle", variable=self.shuffle_enabled).pack(side="left", padx=5)
+        tk.Checkbutton(toggles_frame, text="Auto-Next", variable=self.auto_next_enabled).pack(side="left", padx=5)
 
         # --- BUTTONS ---
         btn_frame = tk.Frame(root)
@@ -103,26 +118,16 @@ class MidiMacroGUI:
         self.status = tk.StringVar(value="Status: Ready")
         tk.Label(root, textvariable=self.status, font=("Arial", 10, "italic")).pack(pady=5)
 
-        # --- SAFE HOTKEY REGISTRATION ---
         self.setup_hotkeys()
 
     def setup_hotkeys(self):
-        try: keyboard.add_hotkey('f5', self.toggle_play_macro, suppress=True)
-        except: pass
-
-        # PLUS / EQUAL mappings
-        for k in ['=', '+', 'equal', 'plus']:
-            try:
+        try:
+            keyboard.add_hotkey('f5', self.toggle_play_macro, suppress=True)
+            for k in ['=', '+', 'equal', 'plus']:
                 keyboard.add_hotkey(k, self.hotkey_inc, suppress=True)
-            except:
-                continue
-
-        # MINUS / DASH mappings
-        for k in ['-', '_', 'minus', 'dash']:
-            try:
+            for k in ['-', '_', 'minus', 'dash']:
                 keyboard.add_hotkey(k, self.hotkey_dec, suppress=True)
-            except:
-                continue
+        except: pass
 
     def hotkey_inc(self):
         now = time.time()
@@ -167,83 +172,88 @@ class MidiMacroGUI:
             self.listbox.insert("end", os.path.basename(f))
 
     def play_logic(self):
-        selection = self.listbox.curselection()
-        if not selection: return
-
-        idx = selection[0]
-        try:
-            mid = MidiFile(self.playlist_data[idx])
-            self.total_time_sec = mid.length
-            self.current_time_sec = 0
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load MIDI: {e}")
-            self.play_state = 'idle'
-            return
-
+        # 3 Second Countdown before starting the session
         for i in range(3, 0, -1):
             if self.stop_signal: return
             self.status.set(f"Switch to Game! Starting in {i}...")
             time.sleep(1)
 
-        self.status.set(f"Playing: {os.path.basename(self.playlist_data[idx])}")
+        while self.play_state == 'playing' and not self.stop_signal:
+            try:
+                mid = MidiFile(self.playlist_data[self.current_index])
+                self.total_time_sec = mid.length
+                self.current_time_sec = 0
 
-        semitone_map = {
-            0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (2, -1),
-            4: (2, 0), 5: (3, 0), 6: (3, 1), 7: (4, 0),
-            8: (4, 1), 9: (5, 0), 10: (6, -1), 11: (6, 0)
-        }
+                # Update UI
+                self.listbox.selection_clear(0, tk.END)
+                self.listbox.selection_set(self.current_index)
+                self.listbox.see(self.current_index)
+                self.status.set(f"Playing: {os.path.basename(self.playlist_data[self.current_index])}")
+            except:
+                break
 
-        for event in mid:
+            semitone_map = {0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (2, -1), 4: (2, 0), 5: (3, 0), 6: (3, 1), 7: (4, 0), 8: (4, 1), 9: (5, 0), 10: (6, -1), 11: (6, 0)}
+
+            for event in mid:
+                if self.stop_signal: break
+
+                try:
+                    speed = float(self.speed_entry.get())
+                    manual_trans = int(self.octave_shift.get()) * 12
+                except: speed, manual_trans = 1.0, 0
+
+                time.sleep(max(0, event.time / speed))
+                self.current_time_sec += event.time
+
+                if self.total_time_sec > 0:
+                    self.progress['value'] = (self.current_time_sec / self.total_time_sec) * 100
+                self.time_label.config(text=f"{self.format_time(self.current_time_sec)} / {self.format_time(self.total_time_sec)}")
+
+                if event.is_meta or event.type != 'note_on' or event.velocity == 0:
+                    continue
+
+                pitch = event.note + manual_trans
+                if self.clamp_enabled.get():
+                    pitch = max(C3_MIDI_PITCH, min(C3_MIDI_PITCH + 35, pitch))
+
+                relative_pitch = pitch % 12
+                octave = (pitch - C3_MIDI_PITCH) // 12
+
+                if 0 <= octave < len(row_keys):
+                    key_idx, modifier = semitone_map[relative_pitch]
+                    target_key = row_keys[octave][key_idx]
+                    if modifier == 1:
+                        keyboard.press('shift'); keyboard.press_and_release(target_key); keyboard.release('shift')
+                    elif modifier == -1:
+                        keyboard.press('ctrl'); keyboard.press_and_release(target_key); keyboard.release('ctrl')
+                    else:
+                        keyboard.press_and_release(target_key)
+
             if self.stop_signal: break
 
-            try:
-                speed = float(self.speed_entry.get())
-                manual_trans = int(self.octave_shift.get()) * 12
-            except:
-                speed, manual_trans = 1.0, 0
+            # If Auto-Next is disabled, stop here
+            if not self.auto_next_enabled.get():
+                break
 
-            actual_sleep = max(0, event.time / speed)
-            time.sleep(actual_sleep)
-
-            self.current_time_sec += event.time
-            if self.total_time_sec > 0:
-                percent = (self.current_time_sec / self.total_time_sec) * 100
-                self.progress['value'] = percent
-
-            self.time_label.config(text=f"{self.format_time(self.current_time_sec)} / {self.format_time(self.total_time_sec)}")
-
-            if event.is_meta or event.type != 'note_on' or event.velocity == 0:
-                continue
-
-            pitch = event.note + manual_trans
-            pitch = max(C3_MIDI_PITCH, min(C3_MIDI_PITCH + 35, pitch))
-
-            relative_pitch = pitch % 12
-            octave = max(0, min(2, (pitch - C3_MIDI_PITCH) // 12))
-
-            key_idx, modifier = semitone_map[relative_pitch]
-            target_key = row_keys[octave][key_idx]
-
-            if modifier == 1:
-                keyboard.press('shift')
-                keyboard.press_and_release(target_key)
-                keyboard.release('shift')
-            elif modifier == -1:
-                keyboard.press('ctrl')
-                keyboard.press_and_release(target_key)
-                keyboard.release('ctrl')
+            # Playlist Navigation
+            if self.shuffle_enabled.get():
+                self.current_index = random.randint(0, len(self.playlist_data) - 1)
             else:
-                keyboard.press_and_release(target_key)
+                self.current_index += 1
+                if self.current_index >= len(self.playlist_data):
+                    if self.loop_enabled.get():
+                        self.current_index = 0
+                    else:
+                        break
 
-        self.status.set("Status: Finished" if not self.stop_signal else "Status: Stopped")
         self.play_state = 'idle'
+        self.status.set("Status: Finished/Stopped")
 
     def start_play(self):
+        if not self.playlist_data: return
         if self.play_state == 'playing': return
-        if not self.listbox.curselection():
-            messagebox.showwarning("Warning", "Please select a song from the playlist first!")
-            return
-
+        selection = self.listbox.curselection()
+        self.current_index = selection[0] if selection else 0
         self.stop_signal = False
         self.play_state = 'playing'
         threading.Thread(target=self.play_logic, daemon=True).start()
@@ -254,10 +264,8 @@ class MidiMacroGUI:
         self.status.set("Status: Stopped")
 
     def toggle_play_macro(self):
-        if self.play_state == 'playing':
-            self.stop_play()
-        else:
-            self.root.after(0, self.start_play)
+        if self.play_state == 'playing': self.stop_play()
+        else: self.root.after(0, self.start_play)
 
 if __name__ == '__main__':
     root = tk.Tk()
