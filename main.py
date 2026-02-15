@@ -7,19 +7,20 @@ import keyboard
 
 # --- CONFIGURATION ---
 ROW_KEYS = [
-    ['z', 'x', 'c', 'v', 'b', 'n', 'm'], # Low Row
-    ['a', 's', 'd', 'f', 'g', 'h', 'j'], # Medium Row
-    ['q', 'w', 'e', 'r', 't', 'y', 'u']  # High Row
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm'], # Low Row (Octave 0)
+    ['a', 's', 'd', 'f', 'g', 'h', 'j'], # Medium Row (Octave 1)
+    ['q', 'w', 'e', 'r', 't', 'y', 'u']  # High Row (Octave 2)
 ]
 
 C3_PITCH = 48
+MAX_PITCH = C3_PITCH + 35 # Highest note in the 3-row layout
 play_state = 'idle'
 stop_signal = False
 manual_octave_offset = 0
 
 # Debounce settings
 last_hotkey_time = 0
-debounce_sec = 0.2  # Ignore duplicate hits within 0.2 seconds
+debounce_sec = 0.2
 
 def get_key_and_modifier(pitch):
     relative_pitch = pitch % 12
@@ -30,7 +31,9 @@ def get_key_and_modifier(pitch):
     }
 
     octave = (pitch - C3_PITCH) // 12
-    octave = max(0, min(2, octave))
+    # Ensure octave is valid for our ROW_KEYS list
+    if octave < 0 or octave >= len(ROW_KEYS):
+        return None, None
 
     key_idx, mod = semitone_map[relative_pitch]
     return ROW_KEYS[octave][key_idx], mod
@@ -60,9 +63,20 @@ def play_midi(midi, auto_shifting, speed):
             continue
 
         pitch = event.note + auto_shifting + manual_octave_offset
-        pitch = max(C3_PITCH, min(C3_PITCH + 35, pitch))
+
+        # --- FOLDING LOGIC ---
+        # Fold high notes down until they fit
+        while pitch > MAX_PITCH:
+            pitch -= 12
+
+        # Ignore low notes (let them be missing without clamping)
+        if pitch < C3_PITCH:
+            continue
 
         key, mod = get_key_and_modifier(pitch)
+
+        if key is None: # Safety check
+            continue
 
         if mod == 1:
             keyboard.press('shift')
@@ -80,15 +94,12 @@ def play_midi(midi, auto_shifting, speed):
 
 def change_octave(amount):
     global manual_octave_offset, last_hotkey_time
-
-    # Debounce check
     current_time = time.time()
     if current_time - last_hotkey_time < debounce_sec:
         return
     last_hotkey_time = current_time
 
     manual_octave_offset += (amount * 12)
-    # Clamp between -3 and +3 octaves to prevent going out of range
     manual_octave_offset = max(-36, min(36, manual_octave_offset))
 
     current = manual_octave_offset // 12
@@ -124,8 +135,6 @@ if __name__ == '__main__':
 
         keyboard.add_hotkey('f5', lambda: toggle_control(midi, auto_shift, 1.0), suppress=True)
 
-        # Register multiple keys but the 'change_octave' function
-        # now ignores the extra triggers.
         for k in ['+', '=', 'plus']:
             try: keyboard.add_hotkey(k, lambda: change_octave(1), suppress=True)
             except: pass

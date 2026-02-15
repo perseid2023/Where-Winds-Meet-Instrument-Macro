@@ -22,12 +22,13 @@ row_keys = [
 ]
 
 C3_MIDI_PITCH = 48
+MAX_PITCH = C3_MIDI_PITCH + 35
 
 class MidiMacroGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("WWM Instrument Macro")
-        self.root.geometry("600x680")
+        self.root.title("WWM Macro - Fold High (Fixed Hotkeys)")
+        self.root.geometry("600x700")
 
         self.playlist_data = []
         self.play_state = 'idle'
@@ -37,16 +38,16 @@ class MidiMacroGUI:
         self.current_index = -1
 
         # Toggle Variables
-        self.clamp_enabled = tk.BooleanVar(value=True)
+        self.fold_high_enabled = tk.BooleanVar(value=True)
         self.loop_enabled = tk.BooleanVar(value=False)
         self.shuffle_enabled = tk.BooleanVar(value=False)
-        self.auto_next_enabled = tk.BooleanVar(value=True) # New Toggle
+        self.auto_next_enabled = tk.BooleanVar(value=True)
 
         self.last_hotkey_time = 0
         self.debounce_sec = 0.15
 
         # --- UI HEADER ---
-        tk.Label(root, text="WWM MIDI Player 32-Keys", font=("Arial", 12, "bold")).pack(pady=10)
+        tk.Label(root, text="WWM MIDI Player (Octave Folding)", font=("Arial", 12, "bold")).pack(pady=10)
 
         # --- PLAYLIST SECTION ---
         list_frame = tk.Frame(root)
@@ -101,7 +102,7 @@ class MidiMacroGUI:
         # Toggles Row
         toggles_frame = tk.Frame(root)
         toggles_frame.pack(pady=5)
-        tk.Checkbutton(toggles_frame, text="Clamp", variable=self.clamp_enabled).pack(side="left", padx=5)
+        tk.Checkbutton(toggles_frame, text="Fold High", variable=self.fold_high_enabled).pack(side="left", padx=5)
         tk.Checkbutton(toggles_frame, text="Loop", variable=self.loop_enabled).pack(side="left", padx=5)
         tk.Checkbutton(toggles_frame, text="Shuffle", variable=self.shuffle_enabled).pack(side="left", padx=5)
         tk.Checkbutton(toggles_frame, text="Auto-Next", variable=self.auto_next_enabled).pack(side="left", padx=5)
@@ -120,12 +121,13 @@ class MidiMacroGUI:
 
         self.setup_hotkeys()
 
+    # --- HOTKEY LOGIC ---
     def setup_hotkeys(self):
         try:
             keyboard.add_hotkey('f5', self.toggle_play_macro, suppress=True)
-            for k in ['=', '+', 'equal', 'plus']:
+            for k in ['=', '+']:
                 keyboard.add_hotkey(k, self.hotkey_inc, suppress=True)
-            for k in ['-', '_', 'minus', 'dash']:
+            for k in ['-', '_']:
                 keyboard.add_hotkey(k, self.hotkey_dec, suppress=True)
         except: pass
 
@@ -152,11 +154,7 @@ class MidiMacroGUI:
             self.octave_shift.delete(0, "end")
             self.octave_shift.insert(0, "0")
 
-    def format_time(self, seconds):
-        mins = int(seconds // 60)
-        secs = int(seconds % 60)
-        return f"{mins:02d}:{secs:02d}"
-
+    # --- PLAYBACK LOGIC ---
     def clear_playlist(self):
         self.stop_play()
         self.playlist_data = []
@@ -165,6 +163,9 @@ class MidiMacroGUI:
         self.time_label.config(text="00:00 / 00:00")
         self.status.set("Status: Playlist Cleared")
 
+    def format_time(self, seconds):
+        return f"{int(seconds // 60):02d}:{int(seconds % 60):02d}"
+
     def add_files(self):
         files = filedialog.askopenfilenames(filetypes=[("MIDI files", "*.mid *.midi")])
         for f in files:
@@ -172,10 +173,9 @@ class MidiMacroGUI:
             self.listbox.insert("end", os.path.basename(f))
 
     def play_logic(self):
-        # 3 Second Countdown before starting the session
         for i in range(3, 0, -1):
             if self.stop_signal: return
-            self.status.set(f"Switch to Game! Starting in {i}...")
+            self.status.set(f"Switch to Game! {i}...")
             time.sleep(1)
 
         while self.play_state == 'playing' and not self.stop_signal:
@@ -183,20 +183,16 @@ class MidiMacroGUI:
                 mid = MidiFile(self.playlist_data[self.current_index])
                 self.total_time_sec = mid.length
                 self.current_time_sec = 0
-
-                # Update UI
                 self.listbox.selection_clear(0, tk.END)
                 self.listbox.selection_set(self.current_index)
                 self.listbox.see(self.current_index)
                 self.status.set(f"Playing: {os.path.basename(self.playlist_data[self.current_index])}")
-            except:
-                break
+            except: break
 
             semitone_map = {0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (2, -1), 4: (2, 0), 5: (3, 0), 6: (3, 1), 7: (4, 0), 8: (4, 1), 9: (5, 0), 10: (6, -1), 11: (6, 0)}
 
             for event in mid:
                 if self.stop_signal: break
-
                 try:
                     speed = float(self.speed_entry.get())
                     manual_trans = int(self.octave_shift.get()) * 12
@@ -204,17 +200,18 @@ class MidiMacroGUI:
 
                 time.sleep(max(0, event.time / speed))
                 self.current_time_sec += event.time
-
-                if self.total_time_sec > 0:
-                    self.progress['value'] = (self.current_time_sec / self.total_time_sec) * 100
+                self.progress['value'] = (self.current_time_sec / self.total_time_sec) * 100 if self.total_time_sec > 0 else 0
                 self.time_label.config(text=f"{self.format_time(self.current_time_sec)} / {self.format_time(self.total_time_sec)}")
 
-                if event.is_meta or event.type != 'note_on' or event.velocity == 0:
-                    continue
+                if event.type != 'note_on' or event.velocity == 0: continue
 
                 pitch = event.note + manual_trans
-                if self.clamp_enabled.get():
-                    pitch = max(C3_MIDI_PITCH, min(C3_MIDI_PITCH + 35, pitch))
+
+                if self.fold_high_enabled.get():
+                    while pitch > MAX_PITCH:
+                        pitch -= 12
+
+                if pitch < C3_MIDI_PITCH or pitch > MAX_PITCH: continue
 
                 relative_pitch = pitch % 12
                 octave = (pitch - C3_MIDI_PITCH) // 12
@@ -222,6 +219,7 @@ class MidiMacroGUI:
                 if 0 <= octave < len(row_keys):
                     key_idx, modifier = semitone_map[relative_pitch]
                     target_key = row_keys[octave][key_idx]
+
                     if modifier == 1:
                         keyboard.press('shift'); keyboard.press_and_release(target_key); keyboard.release('shift')
                     elif modifier == -1:
@@ -230,28 +228,21 @@ class MidiMacroGUI:
                         keyboard.press_and_release(target_key)
 
             if self.stop_signal: break
+            if not self.auto_next_enabled.get(): break
 
-            # If Auto-Next is disabled, stop here
-            if not self.auto_next_enabled.get():
-                break
-
-            # Playlist Navigation
             if self.shuffle_enabled.get():
                 self.current_index = random.randint(0, len(self.playlist_data) - 1)
             else:
                 self.current_index += 1
                 if self.current_index >= len(self.playlist_data):
-                    if self.loop_enabled.get():
-                        self.current_index = 0
-                    else:
-                        break
+                    if self.loop_enabled.get(): self.current_index = 0
+                    else: break
 
         self.play_state = 'idle'
         self.status.set("Status: Finished/Stopped")
 
     def start_play(self):
         if not self.playlist_data: return
-        if self.play_state == 'playing': return
         selection = self.listbox.curselection()
         self.current_index = selection[0] if selection else 0
         self.stop_signal = False
@@ -261,13 +252,10 @@ class MidiMacroGUI:
     def stop_play(self):
         self.stop_signal = True
         self.play_state = 'idle'
-        self.status.set("Status: Stopped")
 
     def toggle_play_macro(self):
         if self.play_state == 'playing': self.stop_play()
         else: self.root.after(0, self.start_play)
 
 if __name__ == '__main__':
-    root = tk.Tk()
-    app = MidiMacroGUI(root)
-    root.mainloop()
+    root = tk.Tk(); app = MidiMacroGUI(root); root.mainloop()
